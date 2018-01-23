@@ -1,9 +1,9 @@
 import bpy
+import bmesh
 import binascii
 import struct
-from liblas import file
-from liblas import header
-from liblas import color
+from laspy.file import File
+import numpy as np
 import multiprocessing
 import time
 import bgl
@@ -11,14 +11,14 @@ import bgl
 # ImportHelper is a helper class, defines filename and
 # invoke() function which calls the file selector.
 from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty
 from bpy.types import Operator
 
 # Blender Addon Information
 # Used by User Preferences > Addons
 bl_info = {
   "name" : "LiDAR Importer",
-  "author" : "Brian C. Hynds",
+  "author" : "Brian C. Hynds, Bernardo Fontana", 
   "version" : (0, 1),
   "blender" : (2, 6, 0),
   "description" : "LiDAR File Importer with 3D Object Recognition",
@@ -41,6 +41,7 @@ class ImportLiDARData(Operator, ImportHelper):
 
   # ImportHelper mixin class uses this
   filename_ext = ".las"
+  files = CollectionProperty(name='File paths', type=bpy.types.OperatorFileListElement)
 
   filter_glob = StringProperty(
     default="*.las",
@@ -61,9 +62,13 @@ class ImportLiDARData(Operator, ImportHelper):
     description="Enable to remove all objects from current scene",
     default=True
     )
-
+    
+  ground = BoolProperty(name="ground")
+  
+  vegetation = BoolProperty(name="vegetation")
+    
   def execute(self, context):
-    return read_lidar_data(context, self.filepath, self.pointCloudResolution, self.cleanScene)
+    return read_lidar_data(context, self.filepath, self.pointCloudResolution, self.cleanScene, self.ground, self.vegetation)
 
 # Addon GUI Panel
 class LiDARPanel(bpy.types.Panel):
@@ -78,7 +83,7 @@ class LiDARPanel(bpy.types.Panel):
     row = layout.row()
     row.operator("import_mesh.lidar")
 
-def read_lidar_data(context, filepath, pointCloudResolution, cleanScene):
+def read_lidar_data(context, filepath, pointCloudResolution, cleanScene, ground, vegetation):
 
   print("running read_lidar_data")
 
@@ -102,6 +107,10 @@ def read_lidar_data(context, filepath, pointCloudResolution, cleanScene):
 
   # create a new object with the mesh
   obj = bpy.data.objects.new("LidarObject", me)
+  bm = bmesh.new()
+  bm.verts.new((0, 0, 0))
+  bm.to_mesh(me)
+  bm.free()
 
   # link the mesh to the scene
   scn.objects.link(obj)
@@ -111,17 +120,52 @@ def read_lidar_data(context, filepath, pointCloudResolution, cleanScene):
   # faces = []
 
   # open the file
-  f = file.File(filepath,mode='r')
+  f = File(filepath,mode='r')
+  I = f.Classification == 2
+  num = len(f.points[I])
+  p = len(bin(num)) - 3
 
   # lets get some header information from the file
   fileCount = f.header.count
-  Xmax = f.header.max[0]
-  Ymax = f.header.max[1]
-  Zmax = f.header.max[2]
+  Xmed = (f.header.max[0] + f.header.min[0])/2
+  Ymed = (f.header.max[1] + f.header.min[1])/2
+  Zmed = (f.header.max[2] + f.header.min[2])/2
+  
+  #~ Xmax = f.header.max[0]
+  #~ Ymax = f.header.max[1]
+  #~ Zmax = f.header.max[2]
 
-  Xmin = f.header.min[0]
-  Ymin = f.header.min[1]
-  Zmin = f.header.min[2]
+  #~ Xmin = f.header.min[0]
+  #~ Ymin = f.header.min[1]
+  #~ Zmin = f.header.min[2]
+  
+  a = f.x[I] - Xmed
+  b = f.y[I] - Ymed
+  c = f.z[I] - Zmed
+
+  co = np.ravel(np.column_stack((a, b, c)))
+
+  def potencia(p):
+    bpy.ops.object.mode_set( mode = 'EDIT' )
+    for i in range(p):
+      bpy.ops.mesh.select_all(action='SELECT')
+      bpy.ops.mesh.duplicate()
+      bpy.ops.object.vertex_group_remove_from(use_all_groups=True)
+      bpy.ops.object.vertex_group_assign_new()
+    
+  potencia(p)
+
+  for indi, val in enumerate(bin(num)[:2:-1]):
+    if val == '1':
+      bpy.ops.mesh.select_all(action='DESELECT')
+      # bpy.context.object.active_index = ind
+      bpy.ops.object.vertex_group_set_active(group=bpy.context.object.vertex_groups[indi].name)
+      bpy.ops.object.vertex_group_select()
+      bpy.ops.mesh.duplicate()
+        
+  bpy.ops.object.mode_set( mode = 'OBJECT' )
+        
+  bpy.context.object.data.vertices.foreach_set('co', co)
 
   # use this value for limiting the maximum number of points.  Set to f.header.count for maximum.
   maxNumPoints = f.header.count
@@ -130,21 +174,21 @@ def read_lidar_data(context, filepath, pointCloudResolution, cleanScene):
   wm.progress_begin(0, maxNumPoints/10)
 
   # iterate through the point cloud and import the X Y Z coords into the array
-  for p in f:
-    if maxNumPoints > 0:
-      coords.append((p.x-Xmin-((Xmax-Xmin)/2), p.y-Ymin-((Ymax-Ymin)/2), p.z-Zmin))
+  #~ for p in f.points[I]:
+    #~ if maxNumPoints > 0:
+      #~ coords.append((p[0][0]/100-Xmin-((Xmax-Xmin)/2), p[0][1]/100-Ymin-((Ymax-Ymin)/2), p[0][2]/100-Zmin))
 
-      if (((currentPoint/maxNumPoints)*100)%10 == 0):
-        wm.progress_update(currentPoint)
+      #~ if (((currentPoint/maxNumPoints)*100)%10 == 0):
+        #~ wm.progress_update(currentPoint)
 
-      currentPoint +=1
-      maxNumPoints -= 1
+      #~ currentPoint +=1
+      #~ maxNumPoints -= 1
 
     # Uncomment the following line for debugging purposes:
     # print("XYZ:", p.x, ",", p.y, ",", p.z)
 
-  me.from_pydata(coords,[],[])
-  me.update()
+  #~ me.from_pydata(coords,[],[])
+  #~ me.update()
 
   # bpy.ops.object.mode_set(mode='EDIT', toggle=False)
   # bpy.ops.object.mode_set(mode='OBJECT', toggle=False)
