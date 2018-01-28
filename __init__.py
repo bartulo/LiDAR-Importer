@@ -118,7 +118,6 @@ def read_lidar_data(context, filepath, pointCloudResolution, cleanScene, classif
   # faces = []
 
   # open the file
-  print(prueba)
   f = File(filepath,mode='r')
   I = f.Classification == int(classification)
   num = len(f.points[I])
