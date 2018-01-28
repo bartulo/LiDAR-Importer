@@ -63,12 +63,10 @@ class ImportLiDARData(Operator, ImportHelper):
     default=True
     )
     
-  ground = BoolProperty(name="ground")
-  
-  vegetation = BoolProperty(name="vegetation")
+  classification = EnumProperty( items = (('2', 'ground', 'tierra'), ('3', 'low vegetation', 'verg'), ('4', 'medium vegetation', 'verg'), ('5', 'high vegetation', 'verg')))
     
   def execute(self, context):
-    return read_lidar_data(context, self.filepath, self.pointCloudResolution, self.cleanScene, self.ground, self.vegetation)
+    return read_lidar_data(context, self.filepath, self.pointCloudResolution, self.cleanScene, self.classification)
 
 # Addon GUI Panel
 class LiDARPanel(bpy.types.Panel):
@@ -83,7 +81,7 @@ class LiDARPanel(bpy.types.Panel):
     row = layout.row()
     row.operator("import_mesh.lidar")
 
-def read_lidar_data(context, filepath, pointCloudResolution, cleanScene, ground, vegetation):
+def read_lidar_data(context, filepath, pointCloudResolution, cleanScene, classification):
 
   print("running read_lidar_data")
 
@@ -120,8 +118,9 @@ def read_lidar_data(context, filepath, pointCloudResolution, cleanScene, ground,
   # faces = []
 
   # open the file
+  print(prueba)
   f = File(filepath,mode='r')
-  I = f.Classification == 2
+  I = f.Classification == int(classification)
   num = len(f.points[I])
   p = len(bin(num)) - 3
 
@@ -155,11 +154,11 @@ def read_lidar_data(context, filepath, pointCloudResolution, cleanScene, ground,
     
   potencia(p)
 
-  for indi, val in enumerate(bin(num)[:2:-1]):
+  for ind, val in enumerate(bin(num)[:2:-1]):
     if val == '1':
       bpy.ops.mesh.select_all(action='DESELECT')
       # bpy.context.object.active_index = ind
-      bpy.ops.object.vertex_group_set_active(group=bpy.context.object.vertex_groups[indi].name)
+      bpy.ops.object.vertex_group_set_active(group=bpy.context.object.vertex_groups[ind].name)
       bpy.ops.object.vertex_group_select()
       bpy.ops.mesh.duplicate()
         
